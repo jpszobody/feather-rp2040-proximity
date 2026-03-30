@@ -1,0 +1,17 @@
+# macOS system files
+._*
+.DS_Store
+.Trashes
+.Trash-1000
+.fseventsd
+.metadata_never_index
+System Volume Information
+
+# CircuitPython compiled bytecode (Adafruit's code, not yours)
+lib/
+
+# SD card contents
+sd/
+
+# settings.toml can contain WiFi passwords and API keys — keep it out of git
+settings.toml
