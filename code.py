@@ -73,6 +73,47 @@ main_group.append(wall_tg)
 dist_label = label.Label(terminalio.FONT, text="", color=0xFFFFFF, x=2, y=5)
 main_group.append(dist_label)
 
+# Crack overlay — hidden by default (palette[1] = black = invisible)
+crack_palette = displayio.Palette(2)
+crack_palette[0] = 0x000000
+crack_palette[1] = 0x000000
+crack_bm = displayio.Bitmap(128, 32, 2)
+
+def draw_line(bm, x0, y0, x1, y1):
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+    while True:
+        if 0 <= x0 < bm.width and 0 <= y0 < bm.height:
+            bm[x0, y0] = 1
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            x0 += sx
+        if e2 < dx:
+            err += dx
+            y0 += sy
+
+# Cracks radiate from the impact point near the wall
+ix, iy = 104, 15
+draw_line(crack_bm, ix, iy, 68,  0)   # upper-left main crack
+draw_line(crack_bm, ix, iy, 58, 31)   # lower-left main crack
+draw_line(crack_bm, ix, iy, 42, 13)   # hard left crack
+draw_line(crack_bm, ix, iy, 76,  0)   # upper crack
+draw_line(crack_bm, ix, iy, 80, 31)   # lower crack
+draw_line(crack_bm, 68,  0, 46,  0)   # branch along top
+draw_line(crack_bm, 68,  0, 36, 11)   # branch down-left
+draw_line(crack_bm, 58, 31, 34, 27)   # branch along bottom
+draw_line(crack_bm, 42, 13, 16,  5)   # long branch upper
+draw_line(crack_bm, 42, 13, 18, 22)   # long branch lower
+
+crack_tg = displayio.TileGrid(crack_bm, pixel_shader=crack_palette, x=0, y=0)
+main_group.append(crack_tg)  # on top of everything
+
 display.root_group = main_group
 
 # Car travel range: from x=0 (far) to x=100 (close to wall)
@@ -100,6 +141,7 @@ while True:
         if dist_mm >= OUT_OF_RANGE:
             dist_label.text = ""
             car_tg.x = CAR_MIN_X
+            crack_palette[1] = 0x000000
             display.invert = False
             display.sleep = True
             led_display.fill(0)
@@ -109,22 +151,19 @@ while True:
 
         display.sleep = False
 
-        # Map distance to car x position on screen
-        # dist=SAFE_ZONE → car at left (CAR_MIN_X)
-        # dist=0         → car at right (CAR_MAX_X)
-        clamped = max(0, min(dist_mm, SAFE_ZONE))
-        car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
-
-        # Distance number on OLED
         dist_label.text = f"{dist_mm}mm"
 
-        # LED and flash logic
         if dist_mm <= STOP_ZONE:
+            car_tg.x = CAR_MAX_X + 2       # jam car into the wall
+            crack_palette[1] = 0xFFFFFF    # reveal crack overlay
             led_display.print("STOP")
             led_display.brightness = 1.0
             flash_toggle = not flash_toggle
             display.invert = flash_toggle
         else:
+            clamped = max(0, min(dist_mm, SAFE_ZONE))
+            car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
+            crack_palette[1] = 0x000000    # hide crack overlay
             led_display.print("SLOW")
             led_display.brightness = 0.7
             display.invert = False
@@ -141,6 +180,7 @@ while True:
         led_display[3] = ' '
         led_display.show()
         dist_label.text = "Err"
+        crack_palette[1] = 0x000000
         display.invert = False
         display.sleep = False
         print("Error:", e)
