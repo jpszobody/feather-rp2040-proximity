@@ -14,6 +14,7 @@ from adafruit_ht16k33 import segments
 # ==========================================
 SAFE_ZONE = 500
 CAUTION_ZONE = 300
+OUT_OF_RANGE = 8190
 
 # ==========================================
 # PHASE 1: THE SETUP
@@ -65,6 +66,17 @@ while True:
         # Read the distance from the sensor in millimeters
         dist_mm = sensor.range
         
+        # If nothing in range, shut off both displays
+        if dist_mm >= OUT_OF_RANGE:
+            display.sleep = True
+            led_display.fill(0)
+            led_display.show()
+            time.sleep(0.1)
+            continue
+
+        # Wake display if it was sleeping
+        display.sleep = False
+
         # Determine zone
         if dist_mm <= CAUTION_ZONE:
             zone = "STOP!"
