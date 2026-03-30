@@ -15,11 +15,6 @@ from adafruit_ht16k33 import segments
 SAFE_ZONE = 500
 CAUTION_ZONE = 300
 
-# Zone colors for OLED (0xRRGGBB)
-COLOR_SAFE = 0x00FF00      # Green
-COLOR_CAUTION = 0xFFFF00   # Yellow
-COLOR_DANGER = 0xFF0000    # Red
-
 # ==========================================
 # PHASE 1: THE SETUP
 # ==========================================
@@ -73,27 +68,27 @@ while True:
         # Determine zone
         if dist_mm <= CAUTION_ZONE:
             zone = "STOP!"
-            color = COLOR_DANGER
-            # Flash LED in danger zone
+            # Flash OLED by toggling display inversion
             flash_toggle = not flash_toggle
+            display.invert = flash_toggle
             led_display.brightness = 1.0 if flash_toggle else 0.3
         elif dist_mm <= SAFE_ZONE:
-            zone = "CAUTION"
-            color = COLOR_CAUTION
+            zone = ">> CAUTION"
+            display.invert = False
             led_display.brightness = 0.7
         else:
             zone = "SAFE"
-            color = COLOR_SAFE
+            display.invert = False
             led_display.brightness = 0.5
-        
+
         # LED: Always show distance
         dist_str = (str(dist_mm) + "    ")[:4]
         for i, char in enumerate(dist_str):
             led_display[i] = char if char != ' ' else ' '
         led_display.show()
-        
-        # OLED: Color-coded status
-        distance_label.color = color
+
+        # OLED: Zone status
+        distance_label.color = 0xFFFFFF
         distance_label.text = f"{zone} {dist_mm}mm"
         
         # Also print to the terminal
@@ -107,8 +102,9 @@ while True:
         led_display[2] = 'R'
         led_display[3] = ' '
         led_display.show()
-        distance_label.text = "Sensor Error!"
         distance_label.color = 0xFFFFFF
+        distance_label.text = "Sensor Error!"
+        display.invert = False
         print("Error:", e)
 
     # Wait 0.1 seconds before taking the next reading
