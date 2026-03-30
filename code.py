@@ -105,7 +105,7 @@ for (x,y) in [(72,13),(73,14),(66,16),(65,17),(58,8),(59,8),
               (30,7),(28,22),(20,14),(22,15),(15,9),(18,24)]:
     debris_bm[x,y]=1
 
-debris_tg = displayio.TileGrid(debris_bm, pixel_shader=debris_palette, x=0, y=0)
+debris_tg = displayio.TileGrid(debris_bm, pixel_shader=debris_palette, x=-128, y=0)
 main_group.append(debris_tg)  # on top of everything
 
 display.root_group = main_group
@@ -135,7 +135,7 @@ while True:
         if dist_mm >= OUT_OF_RANGE:
             dist_label.text = ""
             car_tg.x = CAR_MIN_X
-            debris_palette[1] = 0x000000
+            debris_tg.x = -128
             display.invert = False
             display.sleep = True
             led_display.fill(0)
@@ -151,14 +151,20 @@ while True:
         car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
 
         if dist_mm <= STOP_ZONE:
-            debris_palette[1] = 0xFFFFFF   # reveal debris
-            led_display.print("STOP")
+            debris_tg.x = 0               # reveal debris
+            led_display[0] = 'S'
+            led_display[1] = 'T'
+            led_display[2] = 'O'
+            led_display[3] = 'P'
             led_display.brightness = 1.0
             flash_toggle = not flash_toggle
             display.invert = flash_toggle
         else:
-            debris_palette[1] = 0x000000   # hide debris
-            led_display.print("SLOW")
+            debris_tg.x = -128            # hide debris off-screen
+            led_display[0] = 'S'
+            led_display[1] = 'L'
+            led_display[2] = 'O'
+            led_display[3] = 'W'
             led_display.brightness = 0.7
             display.invert = False
 
@@ -174,7 +180,7 @@ while True:
         led_display[3] = ' '
         led_display.show()
         dist_label.text = "Err"
-        debris_palette[1] = 0x000000
+        debris_tg.x = -128
         display.invert = False
         display.sleep = False
         print("Error:", e)
