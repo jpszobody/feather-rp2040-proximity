@@ -12,112 +12,137 @@ from adafruit_ht16k33 import segments
 # ==========================================
 # ZONE THRESHOLDS (in mm)
 # ==========================================
-SAFE_ZONE = 500
-CAUTION_ZONE = 300
-OUT_OF_RANGE = 8190
+SAFE_ZONE = 500   # Beyond this = out of useful range
+STOP_ZONE = 100   # Within this = STOP
+OUT_OF_RANGE = 8190  # Sensor sentinel value for "nothing detected"
 
 # ==========================================
 # PHASE 1: THE SETUP
 # ==========================================
 
-# 1. Reset any displays that might be stuck in memory
 displayio.release_displays()
 
-# 2. Open the I2C "Road" via the STEMMA QT port
 i2c = busio.I2C(board.SCL, board.SDA)
-
-# 3. Wake up the VL53L0X Sensor
 sensor = adafruit_vl53l0x.VL53L0X(i2c)
 
-# 4. Wake up the OLED Display
-# 0x3C is the standard hardware address for these specific OLED screens
 display_bus = i2cdisplaybus.I2CDisplayBus(i2c, device_address=0x3C)
 display = adafruit_displayio_ssd1306.SSD1306(display_bus, width=128, height=32)
 
-# 5. Create a "Canvas" and a "Text Box" for the screen
+# --- Build the OLED display group ---
 main_group = displayio.Group()
-distance_label = label.Label(
-    terminalio.FONT, 
-    text="Waking up...", 
-    color=0xFFFFFF, 
-    x=10, 
-    y=15
-)
-main_group.append(distance_label)
-display.root_group = main_group  # Push our canvas to the physical screen
 
-# 6. Wake up the 14-Segment LED Display
-led_display = segments.Seg14x4(i2c)  # Default address 0x70
-led_display.brightness = 0.5  # Start at medium brightness
+# Shared palette: index 0 = off, index 1 = on
+palette = displayio.Palette(2)
+palette[0] = 0x000000
+palette[1] = 0xFFFFFF
 
-time.sleep(1) # Brief pause so you can see the startup text
+# Car silhouette bitmap (22w x 12h), drawn as a side-profile
+#
+#      XXXXXXXXXX       <- cabin
+#  XXXXXXXXXXXXXXXXXX   <- body
+#  XXXXXXXXXXXXXXXXXX
+#  XX              XX   <- wheel wells
+#  XXXX          XXXX   <- wheels
+#
+car_bm = displayio.Bitmap(22, 12, 2)
+for x in range(5, 17):       # cabin top
+    for y in range(0, 3):
+        car_bm[x, y] = 1
+for x in range(1, 21):       # main body
+    for y in range(3, 8):
+        car_bm[x, y] = 1
+for x in range(1, 6):        # left wheel
+    for y in range(8, 12):
+        car_bm[x, y] = 1
+for x in range(15, 21):      # right wheel
+    for y in range(8, 12):
+        car_bm[x, y] = 1
+
+car_tg = displayio.TileGrid(car_bm, pixel_shader=palette, x=0, y=10)
+main_group.append(car_tg)
+
+# Stop wall: vertical bar on the right edge
+wall_bm = displayio.Bitmap(3, 32, 2)
+for x in range(3):
+    for y in range(32):
+        wall_bm[x, y] = 1
+wall_tg = displayio.TileGrid(wall_bm, pixel_shader=palette, x=124, y=0)
+main_group.append(wall_tg)
+
+# Distance label — top-left, above the car
+dist_label = label.Label(terminalio.FONT, text="", color=0xFFFFFF, x=2, y=5)
+main_group.append(dist_label)
+
+display.root_group = main_group
+
+# Car travel range: from x=0 (far) to x=100 (close to wall)
+CAR_MIN_X = 0
+CAR_MAX_X = 100  # wall is at x=124, car is 22px wide, leaves a 2px gap at closest
+
+# LED display
+led_display = segments.Seg14x4(i2c)
+led_display.brightness = 0.5
+
+time.sleep(1)
 
 # ==========================================
 # PHASE 2: THE LOOP
 # ==========================================
 print("Starting car proximity detector...")
-print(f"SAFE: >{SAFE_ZONE}mm | CAUTION: {CAUTION_ZONE}-{SAFE_ZONE}mm | DANGER: <={CAUTION_ZONE}mm")
 
-# Flash state for danger zone
 flash_toggle = False
 
 while True:
     try:
-        # Read the distance from the sensor in millimeters
         dist_mm = sensor.range
-        
-        # If nothing in range, shut off both displays
+
+        # Nothing in range — shut everything off and wait
         if dist_mm >= OUT_OF_RANGE:
+            dist_label.text = ""
+            car_tg.x = CAR_MIN_X
+            display.invert = False
             display.sleep = True
             led_display.fill(0)
             led_display.show()
             time.sleep(0.1)
             continue
 
-        # Wake display if it was sleeping
         display.sleep = False
 
-        # Determine zone
-        if dist_mm <= CAUTION_ZONE:
-            zone = "STOP!"
-            # Flash OLED by toggling display inversion
+        # Map distance to car x position on screen
+        # dist=SAFE_ZONE → car at left (CAR_MIN_X)
+        # dist=0         → car at right (CAR_MAX_X)
+        clamped = max(0, min(dist_mm, SAFE_ZONE))
+        car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
+
+        # Distance number on OLED
+        dist_label.text = f"{dist_mm}mm"
+
+        # LED and flash logic
+        if dist_mm <= STOP_ZONE:
+            led_display.print("STOP")
+            led_display.brightness = 1.0
             flash_toggle = not flash_toggle
             display.invert = flash_toggle
-            led_display.brightness = 1.0 if flash_toggle else 0.3
-        elif dist_mm <= SAFE_ZONE:
-            zone = ">> CAUTION"
-            display.invert = False
-            led_display.brightness = 0.7
         else:
-            zone = "SAFE"
+            led_display.print("SLOW")
+            led_display.brightness = 0.7
             display.invert = False
-            led_display.brightness = 0.5
 
-        # LED: Always show distance
-        dist_str = (str(dist_mm) + "    ")[:4]
-        for i, char in enumerate(dist_str):
-            led_display[i] = char if char != ' ' else ' '
         led_display.show()
 
-        # OLED: Zone status
-        distance_label.color = 0xFFFFFF
-        distance_label.text = f"{zone} {dist_mm}mm"
-        
-        # Also print to the terminal
-        print(f"[{zone:8}] Distance: {dist_mm}mm")
-        
+        print(f"Distance: {dist_mm}mm | {'STOP' if dist_mm <= STOP_ZONE else 'SLOW'}")
+
     except Exception as e:
-        # If the sensor gets disconnected or glitches, don't crash the whole board
         led_display.fill(0)
         led_display[0] = 'E'
         led_display[1] = 'R'
         led_display[2] = 'R'
         led_display[3] = ' '
         led_display.show()
-        distance_label.color = 0xFFFFFF
-        distance_label.text = "Sensor Error!"
+        dist_label.text = "Err"
         display.invert = False
+        display.sleep = False
         print("Error:", e)
 
-    # Wait 0.1 seconds before taking the next reading
     time.sleep(0.1)
