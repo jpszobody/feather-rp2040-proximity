@@ -73,46 +73,40 @@ main_group.append(wall_tg)
 dist_label = label.Label(terminalio.FONT, text="", color=0xFFFFFF, x=2, y=5)
 main_group.append(dist_label)
 
-# Crack overlay — hidden by default (palette[1] = black = invisible)
-crack_palette = displayio.Palette(2)
-crack_palette[0] = 0x000000
-crack_palette[1] = 0x000000
-crack_bm = displayio.Bitmap(128, 32, 2)
+# Debris overlay — scattered pixels overlaid on top of car when crashing
+# palette[0] is transparent so the car shows through underneath
+debris_palette = displayio.Palette(2)
+debris_palette[0] = 0x000000
+debris_palette.make_transparent(0)
+debris_palette[1] = 0x000000  # hidden until crash
+debris_bm = displayio.Bitmap(128, 32, 2)
 
-def draw_line(bm, x0, y0, x1, y1):
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx - dy
+# Helper to draw a short line segment into the bitmap
+def draw_seg(x0, y0, x1, y1):
+    dx=abs(x1-x0); dy=abs(y1-y0)
+    sx=1 if x0<x1 else -1; sy=1 if y0<y1 else -1; err=dx-dy
     while True:
-        if 0 <= x0 < bm.width and 0 <= y0 < bm.height:
-            bm[x0, y0] = 1
-        if x0 == x1 and y0 == y1:
-            break
-        e2 = 2 * err
-        if e2 > -dy:
-            err -= dy
-            x0 += sx
-        if e2 < dx:
-            err += dx
-            y0 += sy
+        if 0<=x0<128 and 0<=y0<32: debris_bm[x0,y0]=1
+        if x0==x1 and y0==y1: break
+        e2=2*err
+        if e2>-dy: err-=dy; x0+=sx
+        if e2<dx:  err+=dx; y0+=sy
 
-# Cracks radiate from the impact point near the wall
-ix, iy = 104, 15
-draw_line(crack_bm, ix, iy, 68,  0)   # upper-left main crack
-draw_line(crack_bm, ix, iy, 58, 31)   # lower-left main crack
-draw_line(crack_bm, ix, iy, 42, 13)   # hard left crack
-draw_line(crack_bm, ix, iy, 76,  0)   # upper crack
-draw_line(crack_bm, ix, iy, 80, 31)   # lower crack
-draw_line(crack_bm, 68,  0, 46,  0)   # branch along top
-draw_line(crack_bm, 68,  0, 36, 11)   # branch down-left
-draw_line(crack_bm, 58, 31, 34, 27)   # branch along bottom
-draw_line(crack_bm, 42, 13, 16,  5)   # long branch upper
-draw_line(crack_bm, 42, 13, 18, 22)   # long branch lower
+# Short chunks flying left from the car (right side of screen)
+for seg in [(98,7,93,3),(96,24,90,28),(100,14,95,17),
+            (86,3,82,1),(83,27,78,30),(79,10,74,7),(81,21,75,25),
+            (71,5,67,2),(69,26,64,29),(60,8,55,5),(61,22,56,25)]:
+    draw_seg(*seg)
 
-crack_tg = displayio.TileGrid(crack_bm, pixel_shader=crack_palette, x=0, y=0)
-main_group.append(crack_tg)  # on top of everything
+# Individual scattered pixel pairs at medium/long range
+for (x,y) in [(72,13),(73,14),(66,16),(65,17),(58,8),(59,8),
+              (55,20),(56,20),(48,5),(49,5),(45,25),(46,25),
+              (62,2),(38,11),(39,11),(35,18),(40,28),(42,29),
+              (30,7),(28,22),(20,14),(22,15),(15,9),(18,24)]:
+    debris_bm[x,y]=1
+
+debris_tg = displayio.TileGrid(debris_bm, pixel_shader=debris_palette, x=0, y=0)
+main_group.append(debris_tg)  # on top of everything
 
 display.root_group = main_group
 
@@ -141,7 +135,7 @@ while True:
         if dist_mm >= OUT_OF_RANGE:
             dist_label.text = ""
             car_tg.x = CAR_MIN_X
-            crack_palette[1] = 0x000000
+            debris_palette[1] = 0x000000
             display.invert = False
             display.sleep = True
             led_display.fill(0)
@@ -153,17 +147,17 @@ while True:
 
         dist_label.text = f"{dist_mm}mm"
 
+        clamped = max(0, min(dist_mm, SAFE_ZONE))
+        car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
+
         if dist_mm <= STOP_ZONE:
-            car_tg.x = CAR_MAX_X + 2       # jam car into the wall
-            crack_palette[1] = 0xFFFFFF    # reveal crack overlay
+            debris_palette[1] = 0xFFFFFF   # reveal debris
             led_display.print("STOP")
             led_display.brightness = 1.0
             flash_toggle = not flash_toggle
             display.invert = flash_toggle
         else:
-            clamped = max(0, min(dist_mm, SAFE_ZONE))
-            car_tg.x = int((1 - clamped / SAFE_ZONE) * CAR_MAX_X)
-            crack_palette[1] = 0x000000    # hide crack overlay
+            debris_palette[1] = 0x000000   # hide debris
             led_display.print("SLOW")
             led_display.brightness = 0.7
             display.invert = False
@@ -180,7 +174,7 @@ while True:
         led_display[3] = ' '
         led_display.show()
         dist_label.text = "Err"
-        crack_palette[1] = 0x000000
+        debris_palette[1] = 0x000000
         display.invert = False
         display.sleep = False
         print("Error:", e)
