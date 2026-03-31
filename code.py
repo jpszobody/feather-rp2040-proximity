@@ -1,4 +1,5 @@
 import time
+import random
 import board
 import busio
 import displayio
@@ -96,7 +97,109 @@ CAR_MAX_X = 102
 led_display = segments.Seg14x4(i2c)
 led_display.brightness = 0.5
 
-time.sleep(1)
+def boot_sequence():
+    boot_group = displayio.Group()
+    screen_bm = displayio.Bitmap(128, 32, 2)
+    screen_tg = displayio.TileGrid(screen_bm, pixel_shader=palette)
+    boot_group.append(screen_tg)
+    display.root_group = boot_group
+    display.sleep = False
+
+    # Phase 1: Power-on flash
+    led_display.fill(0xFF)
+    led_display.brightness = 1.0
+    led_display.show()
+    screen_bm.fill(1)
+    time.sleep(0.1)
+    screen_bm.fill(0)
+    time.sleep(0.05)
+    screen_bm.fill(1)
+    time.sleep(0.1)
+    screen_bm.fill(0)
+    led_display.fill(0)
+    led_display.show()
+    time.sleep(0.1)
+
+    # Phase 2: Matrix scramble
+    line1 = label.Label(terminalio.FONT, text="< PROX DET >", color=0xFFFFFF, x=20, y=10)
+    line2 = label.Label(terminalio.FONT, text="SYS INIT...", color=0xFFFFFF, x=23, y=24)
+    boot_group.append(line1)
+    boot_group.append(line2)
+    chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    scramble_end = time.monotonic() + 1.5
+    while time.monotonic() < scramble_end:
+        for i in range(4):
+            led_display[i] = random.choice(chars)
+        led_display.show()
+        time.sleep(0.05)
+    boot_group.pop()
+    boot_group.pop()
+
+    # Phase 3: Scan line sweep
+    led_display[0] = 'S'
+    led_display[1] = 'C'
+    led_display[2] = 'A'
+    led_display[3] = 'N'
+    led_display.show()
+    scan_bm = displayio.Bitmap(128, 3, 2)
+    scan_bm.fill(1)
+    scan_tg = displayio.TileGrid(scan_bm, pixel_shader=palette, x=0, y=0)
+    boot_group.append(scan_tg)
+    for y in range(30):
+        scan_tg.y = y
+        time.sleep(0.022)
+    boot_group.pop()
+
+    # Phase 4: Loading bar
+    load_label = label.Label(terminalio.FONT, text="LOADING...", color=0xFFFFFF, x=24, y=7)
+    boot_group.append(load_label)
+    for x in range(128):
+        screen_bm[x, 16] = 1
+        screen_bm[x, 29] = 1
+    for y in range(16, 30):
+        screen_bm[0, y] = 1
+        screen_bm[127, y] = 1
+    last_pct = -1
+    for x in range(2, 126):
+        for y in range(18, 28):
+            screen_bm[x, y] = 1
+        pct = int(x / 124 * 100)
+        if pct != last_pct:
+            led_display[0] = str(pct // 100) if pct >= 100 else ' '
+            led_display[1] = str((pct % 100) // 10) if pct >= 10 else ' '
+            led_display[2] = str(pct % 10)
+            led_display[3] = ' '
+            led_display.show()
+            last_pct = pct
+        time.sleep(0.007)
+    boot_group.pop()
+    screen_bm.fill(0)
+
+    # Phase 5: ARMED flash
+    armed_label = label.Label(terminalio.FONT, text="** ARMED **", color=0xFFFFFF, x=20, y=16)
+    boot_group.append(armed_label)
+    for _ in range(5):
+        display.invert = True
+        led_display[0] = 'A'
+        led_display[1] = 'R'
+        led_display[2] = 'M'
+        led_display[3] = 'D'
+        led_display.brightness = 1.0
+        led_display.show()
+        time.sleep(0.12)
+        display.invert = False
+        led_display.fill(0)
+        led_display.show()
+        time.sleep(0.08)
+
+    # Hand off to main
+    display.invert = False
+    display.root_group = main_group
+    led_display.fill(0)
+    led_display.show()
+
+
+boot_sequence()
 
 # ==========================================
 # PHASE 2: THE LOOP
